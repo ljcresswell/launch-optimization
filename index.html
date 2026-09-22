@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Optimization of Propellant Masses and Launch Trajectory - Luke Cresswell</title>
+<meta name="description" content="A numerical framework for optimizing propellant allocation and ascent trajectory for a two-stage launch vehicle.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0b1c2c;--line:rgba(150,190,220,.22);--soft:rgba(150,190,220,.12);--ink:#e9f1f7;--dim:#a9bccd;--faint:#7d94aa;--amber:#e3a13c;--cyan:#6fc6dd;--mono:'IBM Plex Mono',monospace}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:repeating-linear-gradient(0deg,rgba(150,190,220,.07) 0 1px,transparent 1px 88px),repeating-linear-gradient(90deg,rgba(150,190,220,.07) 0 1px,transparent 1px 88px),var(--bg);color:var(--ink);font:16px/1.65 'IBM Plex Sans',sans-serif;-webkit-font-smoothing:antialiased}
+a{color:var(--cyan)}
+a:focus-visible{outline:2px solid var(--amber);outline-offset:3px}
+h1,h2,h3{font-family:'Space Grotesk',sans-serif;font-weight:600;margin:0;line-height:1.2}
+.frame{max-width:1160px;margin:0 auto;padding:18px}
+.sheet{border:1px solid var(--line);position:relative}
+.sheet::before{content:"";position:absolute;inset:6px;border:1px solid var(--soft);pointer-events:none}
+.wrap{max-width:920px;margin:0 auto;padding:0 32px}
+header.top{padding:40px 0 0}
+.meta{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font:12px var(--mono);letter-spacing:.02em;text-transform:uppercase;color:var(--faint);padding-bottom:14px;border-bottom:1px solid var(--line)}
+h1{font-size:clamp(28px,4.4vw,44px);max-width:22ch;padding:28px 0 24px}
+.cells{display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--line)}
+.cell{padding:12px 16px 16px;border-right:1px solid var(--line);font-size:14px}
+.cell:first-child{padding-left:0}
+.cell:last-child{border:0}
+.cell b{display:block;font:400 10.5px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--faint);margin-bottom:6px}
+.cell a{color:var(--ink)}
+.hero{display:grid;grid-template-columns:1.05fr 1fr;gap:44px;padding:44px 0;align-items:start}
+.lede{font-size:19px;color:var(--ink);max-width:44ch;margin:0}
+.lede strong{color:var(--amber);font-weight:600}
+.hero figure{margin:0}
+.kicker{display:block;font:11.5px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--amber);margin-bottom:10px}
+section{padding:56px 0;border-bottom:1px solid var(--line)}
+section:last-of-type{border:0}
+h2{font-size:clamp(22px,2.6vw,28px);max-width:30ch;margin-bottom:16px}
+h3{font-size:18px;margin:26px 0 8px}
+p{margin:0 0 14px;color:var(--dim);max-width:68ch}
+p strong,li strong{color:var(--ink);font-weight:600}
+.aside{border-left:2px solid var(--amber);background:rgba(227,161,60,.07);padding:14px 18px;margin:22px 0;color:var(--ink);max-width:68ch}
+.aside p{color:var(--ink);margin:0}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.stat{padding:26px 16px 24px;border-right:1px solid var(--line)}
+.stat:first-child{padding-left:0}
+.stat:last-child{border:0}
+.stat .n{font:600 clamp(22px,2.6vw,30px)/1 'Space Grotesk',sans-serif;color:var(--amber)}
+.stat .d{margin-top:10px;font-size:13.5px;color:var(--dim);max-width:26ch}
+.spec{border-top:1px solid var(--line);margin:18px 0}
+.spec div{display:flex;justify-content:space-between;gap:16px;padding:11px 0;border-bottom:1px solid var(--line);font-size:14.5px}
+.spec span:first-child{color:var(--dim)}
+.spec span:last-child{font:13px var(--mono);text-align:right;color:var(--ink)}
+figure{margin:28px 0;border:1px solid var(--line);background:rgba(255,255,255,.02)}
+figure img{display:block;width:100%;height:auto;background:#fff}
+figcaption{padding:10px 14px;border-top:1px solid var(--line);font-size:13px;color:var(--faint)}
+figcaption b{font:600 11px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--amber);margin-right:8px}
+ul.find{list-style:none;padding:0;margin:20px 0;border-top:1px solid var(--line);counter-reset:f}
+ul.find li{position:relative;padding:18px 0 18px 64px;border-bottom:1px solid var(--line);color:var(--dim);font-size:15px}
+ul.find li::before{counter-increment:f;content:counter(f,decimal-leading-zero);position:absolute;left:0;top:20px;font:12px var(--mono);color:var(--faint)}
+.btns{display:flex;gap:12px;flex-wrap:wrap;margin-top:26px}
+.btn{padding:11px 16px;border:1px solid var(--line);color:var(--ink);text-decoration:none;font:12.5px var(--mono);letter-spacing:.03em;transition:border-color .15s,background .15s}
+.btn:hover{border-color:var(--amber);background:rgba(227,161,60,.14)}
+.btn.p{background:var(--amber);border-color:var(--amber);color:var(--bg);font-weight:600}
+.btn.p:hover{background:#efb256}
+.cite{border:1px solid var(--line);padding:18px 20px;font:12.5px/1.8 var(--mono);color:var(--dim);max-width:70ch;margin:14px 0}
+.links{display:flex;gap:24px;flex-wrap:wrap;font-size:13.5px;margin-top:24px}
+.links a{color:var(--dim);text-decoration:none;border-bottom:1px solid var(--line)}
+.links a:hover{color:var(--amber);border-color:var(--amber)}
+.note{font-size:12.5px;color:var(--faint);margin-top:36px}
+code{font:13px var(--mono);color:var(--ink);background:rgba(150,190,220,.1);padding:1px 5px}
+@media(max-width:820px){.wrap{padding:0 20px}.cells,.stats{grid-template-columns:1fr 1fr}.cell:nth-child(2),.stat:nth-child(2){border-right:0}.cell:nth-child(n+3),.stat:nth-child(n+3){border-top:1px solid var(--line)}.cell:nth-child(3),.stat:nth-child(3){padding-left:0}.hero{grid-template-columns:1fr;gap:28px;padding:32px 0}section{padding:42px 0}}
+</style>
+</head>
+<body>
+<div class="frame"><div class="sheet"><div class="wrap">
+
+<header class="top">
+  <div class="meta"><span>Graduate project, Aerospace Engineering and Mechanics</span><span>The University of Alabama</span></div>
+  <h1>Optimizing Propellant Masses and Ascent Trajectory for a Two-Stage Launch Vehicle</h1>
+  <div class="cells">
+    <div class="cell"><b>Author</b>Luke Cresswell</div>
+    <div class="cell"><b>Institution</b>University of Alabama</div>
+    <div class="cell"><b>Topic</b>Trajectory optimization, nonlinear programming, launch vehicle design</div>
+    <div class="cell"><b>Paper &amp; code</b><a href="assets/paper.pdf">Read the full PDF</a> &middot; <a href="https://github.com/">GitHub</a></div>
+  </div>
+</header>
+
+<div class="hero">
+  <div>
+    <p class="lede">We built a numerical tool that, for a rocket with a fixed engine, works out <strong>how much propellant each stage should carry and what path it should fly</strong> to reach a target orbit while burning as little propellant as possible.</p>
+    <div class="btns"><a class="btn p" href="assets/paper.pdf">Download the paper (PDF)</a><a class="btn" href="#results">Jump to results</a><a class="btn" href="mailto:ljcresswell@crimson.ua.edu">Contact</a></div>
+  </div>
+  <figure>
+    <img src="assets/ascent-profile.png" alt="Cartesian plot of the optimized ascent trajectory curving from the launch point out to a 300 km circular target orbit around the Earth.">
+    <figcaption><b>Fig. 1</b>An optimized ascent trajectory reaching the 300 km target orbit, from the paper (Fig. 3).</figcaption>
+  </figure>
+</div>
+
+<section style="border-top:1px solid var(--line)">
+  <span class="kicker">Overview</span>
+  <h2>The short version</h2>
+  <p>Rockets are almost entirely propellant by mass, so every design decision comes back to using that propellant as efficiently as possible. Because building a new engine is expensive, most launch vehicles are designed around an existing, already-tested engine. That leaves two big open questions: how to split the available propellant between stages, and what flight path to fly. This project treats both as one optimization problem.</p>
+  <p>We modeled a two-stage rocket, a solid first stage that flies a gravity turn through the atmosphere and a liquid-fueled second stage that finishes the climb to orbit in vacuum. Given the engine's performance and the rocket's physical parameters, the tool searches for the propellant masses, launch angle, and thrust-steering profile that reach a chosen orbit using the least propellant.</p>
+  <div class="aside"><p><strong>Why this is hard.</strong> The relationship between propellant and achievable velocity is logarithmic, so small amounts of extra weight or drag get expensive fast. On top of that, the underlying physics only lets you improve the design by trial and error unless you set it up as a formal optimization problem, which is what this project does.</p></div>
+</section>
+
+<div class="stats">
+  <div class="stat"><div class="n">2-stage</div><div class="d">solid gravity-turn booster + liquid vacuum insertion stage</div></div>
+  <div class="stat"><div class="n">13</div><div class="d">design variables: two propellant masses, launch angle, and 10 thrust-angle nodes</div></div>
+  <div class="stat"><div class="n">2-level</div><div class="d">optimization: a fast reduced problem seeds the full nonlinear solve</div></div>
+  <div class="stat"><div class="n">80.8 vs 75.2 t</div><div class="d">total propellant for two different, both-valid, converged solutions</div></div>
+</div>
+
+<section>
+  <span class="kicker">Background</span>
+  <h2>Why staging and trajectory matter</h2>
+  <p>Tsiolkovsky's rocket equation ties a vehicle's achievable velocity change to its exhaust velocity and how much of its mass is propellant. Because that relationship is logarithmic, adding propellant gives smaller and smaller returns, and drag or gravity losses become expensive to make up. A typical launch vehicle is roughly 90% propellant by mass, with payload as little as 2%.</p>
+  <p>Nozzle performance also depends on altitude: a nozzle sized for sea level wastes potential thrust in vacuum, and vice versa. This is a major reason rockets fly in stages, a high-thrust stage to punch through the dense lower atmosphere, followed by a stage optimized for vacuum to finish the job. Rather than design a custom engine for each mission, engineers often reuse an existing engine and instead optimize propellant split and trajectory around it, which is exactly the problem this project addresses.</p>
+</section>
+
+<section>
+  <span class="kicker">Modeling approach</span>
+  <h2>How the rocket and its environment are modeled</h2>
+  <p>The simulation combines a stage model, an ideal engine model, and standard gravity, drag, mass, and atmosphere models into one set of equations of motion, written in a polar coordinate system centered on the Earth so the ascent connects naturally to orbital mechanics.</p>
+  <div class="spec">
+    <div><span>Stage 1</span><span>Solid booster, passive stability, gravity-turn trajectory</span></div>
+    <div><span>Stage 2</span><span>Liquid vacuum stage, steerable thrust vector, orbital insertion</span></div>
+    <div><span>Engine model</span><span>Ideal, isentropic, constant chamber conditions</span></div>
+    <div><span>Gravity model</span><span>Newtonian, decreasing with distance from Earth's center</span></div>
+    <div><span>Drag model</span><span>Standard quadratic drag, user-set C<sub>d</sub> and reference area</span></div>
+    <div><span>Atmosphere model</span><span>Two-layer standard atmosphere (troposphere + isothermal stratosphere)</span></div>
+  </div>
+  <p>Everything the model needs, chamber temperature and pressure, nozzle areas, drag coefficient, structural mass fractions, and target orbit, is set by the user in a parameters file, so the same tool can be pointed at different rockets and missions.</p>
+</section>
+
+<section>
+  <span class="kicker">Numerical method</span>
+  <h2>Solving it as an optimization problem</h2>
+  <p>The ascent is posed as a nonlinear program and solved by direct transcription: the trajectory is simulated with MATLAB's variable-step Runge-Kutta integrator, and an outer optimizer (<code>fmincon</code>, using sequential quadratic programming) adjusts the design variables to minimize total propellant while meeting the mission constraints.</p>
+  <p>The design variables are the two stage propellant masses, the initial launch angle, and ten points describing how the second stage's thrust vector changes over the burn. The main constraints require the final orbit to match the target semi-major axis and eccentricity; bounds keep the search within physically reasonable propellant masses and launch angles.</p>
+  <p>A plain optimizer struggles here because a bad starting guess often produces a trajectory that simply crashes, giving the solver nothing useful to improve on. To fix this, the tool uses a <strong>two-level approach</strong>: a quick, simplified inner solve (assuming no active steering) generates a reasonable starting point, which is then handed to the full optimizer to refine into a converged solution.</p>
+</section>
+
+<section id="results">
+  <span class="kicker">Results</span>
+  <h2>Results</h2>
+  <p>For a representative target orbit (300 km circular) and a set of historically reasonable engine and rocket parameters, the reduced inner problem produced a starting guess in a fraction of the effort of the full solve, and the full optimizer then converged to a feasible ascent in 31 iterations.</p>
+  <ul class="find">
+    <li><strong>Baseline solution.</strong> With the launch angle allowed between 55&deg; and 90&deg;, the optimizer converged to an 82.3&deg; launch angle, about 80.8 tonnes of total propellant, and a final orbit within about 0.2% of the 300 km target.</li>
+    <li><strong>The solution is a local minimum, not necessarily the best one.</strong> Because <code>fmincon</code> is a gradient-based local solver, the result it finds depends on the starting guess and the bounds placed on the variables, so different runs can land on genuinely different, still-valid trajectories.</li>
+    <li><strong>Relaxing the launch-angle bound changes the answer.</strong> Allowing angles down to 55&deg; instead of the original 90&deg; produced a different, cheaper solution: about 75.2 tonnes of propellant at a 61&deg; launch angle, a flatter initial climb with more drag but more tangential velocity at atmosphere exit.</li>
+    <li><strong>The cheaper solution trades off differently.</strong> A 61&deg; pitchover is more typical of small, high-thrust sounding rockets than larger orbital vehicles, so whether it is actually usable depends on aerodynamics and structural constraints the model does not capture.</li>
+  </ul>
+  <figure>
+    <img src="assets/state-history.png" alt="Six-panel plot of altitude, speed, flight path angle, vehicle mass, thrust angle, and velocity components over the optimized ascent.">
+    <figcaption><b>Fig. 2</b>Full state-variable history for the baseline solution, from the paper (Fig. 2).</figcaption>
+  </figure>
+  <figure>
+    <img src="assets/second-solution.png" alt="State-variable history for the second, relaxed-launch-angle solution, converging to a smaller final orbit at a lower total propellant mass.">
+    <figcaption><b>Fig. 3</b>State-variable history for the relaxed-bound solution, from the paper (Fig. 5).</figcaption>
+  </figure>
+  <h3>What the two solutions show</h3>
+  <p>Both runs satisfy the same target-orbit constraints starting from the same engine and rocket parameters, yet they reach noticeably different propellant totals and launch angles. That gap is the clearest illustration of the paper's main point: for this kind of trajectory problem, the constraints and starting guess shape the answer as much as the physics does, so exploring the solution space is part of the design process, not an afterthought.</p>
+</section>
+
+<section>
+  <span class="kicker">Conclusion</span>
+  <h2>Conclusion</h2>
+  <p>This project shows that propellant allocation and ascent trajectory for a staged launch vehicle can be handled as a single nonlinear optimization problem, and that a two-level solve (a cheap reduced problem feeding a full trajectory optimizer) makes that problem tractable to initialize reliably. The results also show the limits of a local, gradient-based solver: it reliably finds a feasible trajectory, but not necessarily the cheapest one, and different bounds can lead to qualitatively different, equally valid designs. Even with simplified engine and atmosphere models, the framework is useful for exploring staging and trajectory trade-offs early in a launch vehicle's design.</p>
+  <div class="btns"><a class="btn p" href="assets/paper.pdf">Download the paper (PDF)</a><a class="btn" href="mailto:ljcresswell@crimson.ua.edu">Contact</a></div>
+</section>
+
+<section style="border:0">
+  <span class="kicker">Citation &amp; links</span>
+  <div class="cite">Cresswell, L., "Optimization of Propellant Masses and Launch Trajectory for General Launch Vehicle," The University of Alabama, Tuscaloosa, AL.</div>
+  <div class="links"><a href="assets/paper.pdf">Full paper (PDF)</a><a href="mailto:ljcresswell@crimson.ua.edu">Email</a><a href="https://www.linkedin.com/in/luke-cresswell-288117291/">LinkedIn</a><a href="https://github.com/">Code &amp; derivations (GitHub)</a></div>
+  <p class="note">This page summarizes the paper for a general audience. Figures are reproduced from the paper. The full derivations (Appendix A) and code (Appendix B) are linked above. The PDF has the complete methodology.</p>
+</section>
+
+</div></div></div>
+</body>
+</html>

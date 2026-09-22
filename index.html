@@ -89,7 +89,7 @@ code{font:13px var(--mono);color:var(--ink);background:rgba(150,190,220,.1);padd
 
 <div class="hero">
   <div>
-    <p class="lede">We built a numerical tool that, for a rocket with a fixed engine, works out <strong>how much propellant each stage should carry and what path it should fly</strong> to reach a target orbit while burning as little propellant as possible.</p>
+    <p class="lede">I built a numerical tool that, for a rocket with a fixed engine, works out <strong>how much propellant each stage should carry and what path it should fly</strong> to reach a target orbit while burning as little propellant as possible.</p>
     <div class="btns"><a class="btn p" href="assets/paper.pdf">Download the paper (PDF)</a><a class="btn" href="#results">Jump to results</a><a class="btn" href="mailto:ljcresswell@crimson.ua.edu">Contact</a></div>
   </div>
   <figure>
@@ -102,7 +102,7 @@ code{font:13px var(--mono);color:var(--ink);background:rgba(150,190,220,.1);padd
   <span class="kicker">Overview</span>
   <h2>The short version</h2>
   <p>Rockets are almost entirely propellant by mass, so every design decision comes back to using that propellant as efficiently as possible. Because building a new engine is expensive, most launch vehicles are designed around an existing, already-tested engine. That leaves two big open questions: how to split the available propellant between stages, and what flight path to fly. This project treats both as one optimization problem.</p>
-  <p>We modeled a two-stage rocket, a solid first stage that flies a gravity turn through the atmosphere and a liquid-fueled second stage that finishes the climb to orbit in vacuum. Given the engine's performance and the rocket's physical parameters, the tool searches for the propellant masses, launch angle, and thrust-steering profile that reach a chosen orbit using the least propellant.</p>
+  <p>I modeled a two-stage rocket, a solid first stage that flies a gravity turn through the atmosphere and a liquid-fueled second stage that finishes the climb to orbit in vacuum. Given the engine's performance and the rocket's physical parameters, the tool searches for the propellant masses, launch angle, and thrust-steering profile that reach a chosen orbit using the least propellant.</p>
   <div class="aside"><p><strong>Why this is hard.</strong> The relationship between propellant and achievable velocity is logarithmic, so small amounts of extra weight or drag get expensive fast. On top of that, the underlying physics only lets you improve the design by trial and error unless you set it up as a formal optimization problem, which is what this project does.</p></div>
 </section>
 

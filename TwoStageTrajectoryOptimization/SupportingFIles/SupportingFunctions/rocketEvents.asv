@@ -1,0 +1,182 @@
+function [u0] = generateInitialGuess(params, N_nodes, t_max)
+
+fprintf('\n------ Generating IG via Optimization ------\n\n');
+
+% Decision variables:
+% u = [solidPropMass, liquidPropMass, launchAngle]
+
+payload = params.payloadMass;
+
+u_guess = [5*payload; 5*payload; deg2rad(55)];
+
+lb = [1e3; 1e3; deg2rad(5)];
+ub = [1e6; 1e6; deg2rad(85)];
+
+options = optimoptions('fmincon', ...
+    'Display','iter', ...
+    'MaxFunctionEvaluations', 200, ...
+    'StepTolerance',1e-3);
+
+u_sol = fmincon(@(u) objective(u, params, N_nodes, t_max), ...
+                u_guess, [],[],[],[], lb, ub, [], options);
+
+solidPropMass  = u_sol(1);
+liquidPropMass = u_sol(2);
+launchAngleIG  = u_sol(3);
+
+fprintf('\n--- Optimization Result ---\n');
+fprintf('  Solid  : %.1f kg\n', solidPropMass);
+fprintf('  Liquid : %.1f kg\n', liquidPropMass);
+fprintf('  Angle  : %.2f deg\n', rad2deg(launchAngleIG));
+
+% Re-simulate to extract final state + delta guess
+
+params_ig = params;
+params_ig.solidPropMassInitial  = solidPropMass;
+params_ig.liquidPropMassInitial = liquidPropMass;
+params_ig.launchAngleIG         = launchAngleIG;
+
+params_ig.massInitial = params.payloadMass + params.engineMass1 + params.engineMass2 ...
+    + (1 + params.massFrac1)*solidPropMass ...
+    + (1 + params.massFrac2)*liquidPropMass;
+
+t_nodes = linspace(0, t_max, N_nodes);
+delta   = zeros(N_nodes,1);
+
+X0 = buildInitialState(launchAngleIG, params_ig);
+
+[T_all, X_all, aux] = rocketIntegrator(X0, t_max, t_nodes, delta, params_ig, true);
+
+X_apo = findApoapsis(T_all, X_all);
+
+r      = X_apo(1);
+rdot   = X_apo(3);   % should be ~0
+vtheta = X_apo(4);
+
+gamma = atan2(rdot, vtheta);
+
+%% Build delta guess (simple linear gravity turn)
+
+delta_ig = gamma * linspace(1, 0, N_nodes)';
+
+%% Assemble output
+
+u0 = [solidPropMass; liquidPropMass; launchAngleIG; delta_ig];
+
+fprintf('\n--- Final State ---\n');
+fprintf('  Altitude : %.1f km\n', (r - params.radiusEarth)/1000);
+fprintf('  rdot     : %.2f m/s\n', rdot);
+fprintf('  gamma    : %.2f deg\n', rad2deg(gamma));
+
+fprintf('=== IG Generation Complete ===\n\n');
+
+end
+
+function J = objective(u, params, N_nodes, t_max)
+
+solid  = u(1);
+liquid = u(2);
+gamma0 = u(3);
+
+% Reject nonsense early
+if solid <= 0 || liquid <= 0
+    J = 1e12;
+    return;
+end
+
+params_ig = params;
+params_ig.solidPropMassInitial  = solid;
+params_ig.liquidPropMassInitial = liquid;
+params_ig.launchAngleIG         = gamma0;
+
+params_ig.massInitial = params.payloadMass + params.engineMass1 + params.engineMass2 ...
+    + (1 + params.massFrac1)*solid ...
+    + (1 + params.massFrac2)*liquid;
+
+% delta = 0
+t_nodes = linspace(0, t_max, N_nodes);
+delta   = zeros(N_nodes,1);
+
+X0 = buildInitialState(gamma0, params_ig);
+
+try
+    [~, X_all, ~] = rocketIntegrator(X0, t_max, t_nodes, delta, params_ig, false);
+catch
+    J = 1e10;
+    return;
+end
+
+X_apo = findApoapsis(T_all, X_all);
+
+r      = X_apo(1);
+rdot   = X_apo(3)   % should be ~0
+vtheta = X_apo(4);
+
+mu = params.gravConstant * params.massEarth;
+
+gamma = atan2(rdot, vtheta);
+v_circ = sqrt(mu / r);
+
+%% Penalties
+
+% 1. Below atmosphere 
+pen_alt = (params.rEndAtmo - r;
+
+% 2. Want rdot = 0 
+pen_rdot = rdot;
+
+% 3. Want horizontal flight
+pen_gamma = gamma;
+
+% 4. Want near circular velocity
+pen_v = vtheta - v_circ;
+
+% 5. Optional: discourage insane mass
+pen_mass = 1e-6 * (solid + liquid);
+
+%% Total cost (weights matter!)
+
+J = ...
+    10*(pen_alt)^2 + ...
+    1*(pen_rdot)^2 + ...
+    10*(pen_gamma)^2 + ...
+    1*(pen_v)^2 + ...
+    pen_mass;
+
+% Catch NaNs
+if ~isfinite(J)
+    J = 1e12;
+end
+end
+
+function X_apo = findApoapsis(T_all, X_all)
+
+rdot = X_all(:,3);
+
+% Find sign change: + → -
+idx = find(rdot(1:end-1) > 0 & rdot(2:end) <= 0, 1, 'first');
+
+if isempty(idx)
+    % No apoapsis found → return best available (max radius)
+    [~, idx] = max(X_all(:,1));
+    X_apo = X_all(idx,:);
+    return;
+end
+
+% Linear interpolation for better accuracy
+t1 = T_all(idx);
+t2 = T_all(idx+1);
+
+x1 = X_all(idx,:);
+x2 = X_all(idx+1,:);
+
+rdot1 = x1(3);
+rdot2 = x2(3);
+
+alpha = rdot1 / (rdot1 - rdot2); % fraction to zero crossing
+
+X_apo = x1 + alpha * (x2 - x1);
+
+end
+
+end

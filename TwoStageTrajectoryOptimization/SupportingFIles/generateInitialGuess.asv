@@ -1,0 +1,164 @@
+function [u0] = generateInitialGuess(params, N_nodes, t_max)
+
+fprintf('\n ------ Generating IG ------\n\n')
+
+%% First, Ensure we reach end of atmo
+fprintf('   Phase 1: Finding Ascent:\n')
+
+angle_grid = linspace(1, 1.5708, 10); % Flight path angle
+solid_factor = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
+
+baseSolid = 5*params.payloadMass;
+found = false;
+for i = 1:length(angle_grid)
+    for j = 1:length(solid_factor)
+
+        launchAngleIG = angle_grid(i);
+        solidPropMass = baseSolid * solid_factor(j);
+
+        params_ig = params;
+        params_ig.launchAngleIG = launchAngleIG;
+        params_ig.solidPropMassInitial  = solidPropMass;
+        params_ig.liquidPropMassInitial = 0;
+
+        params_ig.massInitial = params.payloadMass + params.engineMass1 + params.engineMass2 ...
+            + (1 + params.massFrac1)*solidPropMass;
+
+        X0 = buildInitialState(launchAngleIG, params_ig);
+
+        try
+            [~, X_all, aux] = rocketIntegrator(X0, t_max, ...
+                linspace(0,10,N_nodes), zeros(N_nodes,1), params_ig, true);
+        catch
+            continue;
+        end
+
+        if isfield(aux, 'X_stage3_start')
+            fprintf('    Feasible ascent found\n');
+            fprintf('    Angle: %.1f deg\n', rad2deg(launchAngleIG));
+            fprintf('    Solid: %.1f kg\n', solidPropMass);
+            found = true;
+            break;
+        else
+            X_last = X_all(end,:);
+            rdot = X_last(3);
+
+            if rdot < 0
+                fprintf('  Fail: falling (angle too shallow)\n');
+            else
+                fprintf('  Fail: insufficient altitude\n');
+            end
+        end
+    end
+    if found, break; end
+end
+
+if ~found
+    error('Could not find feasible ascent trajectory.');
+end
+params.launchAngleIG = launchAngleIG;
+
+% Phase 2, Liquid Mass to Circularize
+fprintf('   Phase 1: Finding Insertion:\n')
+mu = params.gravConstant * params.massEarth;
+v_circ = sqrt(mu / params.a);
+
+m_dot2 = m_dotFunc(params.specificHeatRatio2, params.At2, ...
+                   params.totalPressure2, params.totalTemp2, ...
+                   params.gasConstant2);
+
+liquidPropMass = 5 * params.payloadMass; % initial guess
+
+maxIter = 20;
+tol = 100;
+
+for iter = 1:maxIter
+
+    params_ig = params;
+    params_ig.solidPropMassInitial  = solidPropMass;
+    params_ig.liquidPropMassInitial = liquidPropMass;
+
+    params_ig.massInitial = params.payloadMass + params.engineMass1 + params.engineMass2 ...
+        + (1 + params.massFrac1)*solidPropMass ...
+        + (1 + params.massFrac2)*liquidPropMass;
+
+    burnDuration = liquidPropMass / m_dot2;
+    t_nodes_dummy = linspace(0, burnDuration, N_nodes);
+    delta_dummy = zeros(N_nodes,1);
+
+    X0 = buildInitialState(params.launchAngleIG, params_ig);
+
+    try
+        [~, ~, aux] = rocketIntegrator(X0, t_max, t_nodes_dummy, ...
+                                      delta_dummy, params_ig, true);
+    catch
+        warning('Integrator failed → increasing liquid mass');
+        liquidPropMass = liquidPropMass * 1.5;
+        continue;
+    end
+
+    if ~isfield(aux, 'X_stage3_start')
+        warning('Lost Stage 3 → increasing liquid mass');
+        liquidPropMass = liquidPropMass * 1.5;
+        continue;
+    end
+
+    X3 = aux.X_stage3_start;
+    r3 = X3(1);
+    rdot3 = X3(3);
+    vtheta3 = X3(4);
+    m3 = X3(5);
+
+    dV_r     = -rdot3;
+    dV_theta = v_circ - vtheta3;
+    dV_total = sqrt(dV_r^2 + dV_theta^2);
+
+    T2 = thrust(params.Ae2, params.At2, params.specificHeatRatio2, ...
+                params.totalTemp2, params.totalPressure2, params.gasConstant2, ...
+                params.radiusEarth, r3);
+
+    v_ex = T2 / m_dot2;
+
+    mf = m3 * exp(-dV_total / v_ex);
+    liquid_new = (m3 - mf) / (1 + params.massFrac2);
+
+    if liquid_new <= 0
+        warning('Unphysical liquid mass → increasing guess');
+        liquid_new = liquidPropMass * 2;
+    end
+
+    fprintf('  Iter %2d | liquid = %9.1f kg | dV = %.1f m/s\n', ...
+        iter, liquid_new, dV_total);
+
+    if abs(liquid_new - liquidPropMass) < tol
+        liquidPropMass = liquid_new;
+        fprintf('  ✓ Converged in %d iterations\n', iter);
+        break;
+    end
+
+    liquidPropMass = liquid_new;
+end
+
+fprintf('  Final liquid prop : %.1f kg\n', liquidPropMass);
+
+% Delta guess
+gamma3 = atan2(rdot3, vtheta3);
+delta_ig = gamma3 * linspace(1, 0, N_nodes)';
+
+fprintf('\n--- Delta Profile ---\n');
+fprintf('  gamma3: %.2f deg\n', rad2deg(gamma3));
+
+%% =========================
+% Assemble u0
+% =========================
+fprintf('\n--- Final Assembly ---\n');
+
+u0 = [solidPropMass; liquidPropMass; params.launchAngleIG; delta_ig];
+
+fprintf('  Solid prop  : %.1f kg\n', solidPropMass);
+fprintf('  Liquid prop : %.1f kg\n', liquidPropMass);
+fprintf('  Launch angle: %.2f deg\n', rad2deg(params.launchAngleIG));
+
+fprintf('=== IG Generation Complete ===\n\n');
+
+end

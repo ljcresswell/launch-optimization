@@ -1,0 +1,170 @@
+clc
+clear
+close all
+addpath(genpath(pwd));
+
+%% Load params
+params  = readParamsFile("UserInputValues.txt");
+N_nodes = params.numberOfControlNodes;
+t_max   = params.maxSimTime;
+what 
+%% Initial Guess
+u0 = generateInitialGuess(params, N_nodes, t_max);
+
+solidMass0   = u0(1);
+liquidMass0  = u0(2);
+launchAngle0 = u0(3);
+delta0       = u0(4:end);
+
+fprintf('=== Initial Guess Summary ===\n');
+fprintf('  Solid  : %.1f kg\n',  solidMass0);
+fprintf('  Liquid : %.1f kg\n',  liquidMass0);
+fprintf('  Angle  : %.2f deg\n', rad2deg(launchAngle0));
+fprintf('  Delta  : [%.3f ... %.3f] rad\n', delta0(1), delta0(end));
+fprintf('\n');
+
+%% Scaling
+% Each scale entry = characteristic size of that variable
+% After scaling, u0_scaled should be all 1 (excep
+scale = [solidMass0; % solid  ~ itself at IG
+         liquidMass0;  % liquid ~ itself at IG
+         launchAngle0;  % angle  ~ itself at IG
+         ones(N_nodes, 1)];
+
+% Safety: never divide by something tiny
+scale(abs(scale) < 1e-6) = 1;
+
+u0_scaled = u0 ./ scale;
+
+fprintf('=== Scaled Initial Guess (should all be O(1)) ===\n');
+fprintf('  solid_s  : %.3f\n', u0_scaled(1));
+fprintf('  liquid_s : %.3f\n', u0_scaled(2));
+fprintf('  angle_s  : %.3f\n', u0_scaled(3));
+fprintf('  delta_s  : [%.3f ... %.3f]\n', u0_scaled(4), u0_scaled(end));
+fprintf('\n');
+
+%% Bounds (unscaled first, then scale)
+lb_raw = [solidMass0  * 0.5;          % solid: don't go below 80% of IG
+          liquidMass0 * 0.3;          % liquid: more freedom downward
+          deg2rad(30);                % angle lower bound
+          -params.maxThrustAngle * ones(N_nodes, 1)];
+
+ub_raw = [solidMass0  * 8.0;          % solid upper
+          liquidMass0 * 8.0;          % liquid upper
+          deg2rad(89);                % angle upper
+          params.maxThrustAngle * ones(N_nodes, 1)];
+
+lb_scaled = lb_raw ./ scale;
+ub_scaled = ub_raw ./ scale;
+
+%% fmincon options
+opts = optimoptions('fmincon', ...
+    'Algorithm',                'sqp', ...
+    'Display',                  'iter', ...
+    'MaxFunctionEvaluations',   20000, ...
+    'MaxIterations',            1000, ...
+    'ConstraintTolerance',      5e-3, ...
+    'OptimalityTolerance',      1e-4, ...
+    'StepTolerance',            1e-6, ...
+    'FiniteDifferenceStepSize', 1e-3, ...
+    'FiniteDifferenceType',     'central');
+
+objFun = @(us) rocketObjCached(us, params, N_nodes, t_max, scale);
+conFun = @(us) rocketConCached(us, params, N_nodes, t_max, scale);
+
+%% Feasibility check on IG
+fprintf('=== Feasibility Check on IG ===\n');
+[f0, ~, ceq0] = rocketObjective(u0_scaled, params, N_nodes, t_max, scale);
+fprintf('  Objective f0     : %.4f (scaled)\n', f0);
+fprintf('  ceq(1) a_err     : %.4f\n', ceq0(1));
+fprintf('  ceq(2) e_err     : %.4f\n', ceq0(2));
+fprintf('  Scaled Error, If not near zero, initialGuess may need some work\n\n');
+
+%% Run optimizer
+clear rocketSharedCache
+fprintf('=== Starting Optimization (N=%d delta nodes) ===\n\n', N_nodes);
+
+warning('off', 'all');
+tic
+
+[u_opt_s, ~, exitflag, output] = fmincon(objFun, u0_scaled, [], [], [], [], ...
+                                          lb_scaled, ub_scaled, conFun, opts);
+fprintf('  First pass exit: %d  feasibility: %.4f\n', exitflag, output.constrviolation);
+
+toc
+warning('on', 'all');
+
+%% Unscale solution
+u_opt = u_opt_s .* scale;
+
+solidOpt   = u_opt(1);
+liquidOpt  = u_opt(2);
+angleOpt   = u_opt(3);
+deltaOpt   = u_opt(4:end);
+
+%% Re-simulate optimal solution to get final orbital state
+params_opt = params;
+params_opt.solidPropMassInitial  = solidOpt;
+params_opt.liquidPropMassInitial = liquidOpt;
+params_opt.massInitial = params.payloadMass + params.engineMass1 + params.engineMass2 ...
+    + (1 + params.massFrac1)*solidOpt ...
+    + (1 + params.massFrac2)*liquidOpt;
+
+m_dot2 = m_dotFunc(params.specificHeatRatio2, params.At2, ...
+                   params.totalPressure2, params.totalTemp2, params.gasConstant2);
+params_opt.liquidBurnDuration = liquidOpt * (1 - params.massFrac2) / m_dot2;
+
+t_nodes = linspace(0, 1, N_nodes);
+X0 = buildInitialState(angleOpt, params_opt);
+
+[X_all, T_all, aux] = rocketIntegrator(X0, t_max, t_nodes, deltaOpt, params_opt, true);
+
+if ~isfield(aux, 'X_stage3_end')
+    fprintf('WARNING: final simulation did not reach Stage 3 end.\n');
+    fprintf('         Check that u_opt is physically viable.\n');
+    % Print what stage it got to
+    fprintf('         Last altitude: %.1f km\n', ...
+        (X_all(end,1) - params.radiusEarth)/1000);
+else
+    [a_final, e_final] = stateToOrbitalElements(aux.X_stage3_end, params);
+    fprintf('Final orbit: a=%.1f km  e=%.5f\n', ...
+        (a_final-params.radiusEarth)/1000, e_final);
+    fprintf('Target orbit: a=%.1f km  e=%.5f\n', ...
+        (params.a-params.radiusEarth)/1000, params.e);
+end
+
+if ~isfield(aux, 'X_stage3_end')
+    return;
+end
+[a_final, e_final] = stateToOrbitalElements(aux.X_stage3_end, params);
+
+%% Report
+fprintf('\n=== Optimization Result ===\n');
+fprintf('  Exit flag     : %d\n',     exitflag);
+fprintf('  Iterations    : %d\n',     output.iterations);
+fprintf('  Func evals    : %d\n',     output.funcCount);
+fprintf('  Solid prop    : %.1f kg\n', solidOpt);
+fprintf('  Liquid prop   : %.1f kg\n', liquidOpt);
+fprintf('  Total prop    : %.1f kg\n', solidOpt + liquidOpt);
+fprintf('  Launch angle  : %.2f deg\n', rad2deg(angleOpt));
+fprintf('  Delta nodes   : ');
+fprintf('%.3f  ', deltaOpt);
+fprintf('\n');
+fprintf('  Final orbit   : a=%.1f km  e=%.5f\n', ...
+    (a_final - params.radiusEarth)/1000, e_final);
+fprintf('  Target orbit  : a=%.1f km  e=%.5f\n', ...
+    (params.a - params.radiusEarth)/1000, params.e);
+
+%% Plot if close enough
+
+if isfield(aux, 'X_stage3_end')
+    [a_final, e_final] = stateToOrbitalElements(aux.X_stage3_end, params);
+    alt_err = abs(a_final - params.a) / 1000;   % km
+    
+    if alt_err < 15
+        fprintf('Solution within tolerance — plotting.\n');
+        plotTraj(T_all, X_all, aux, params, deltaOpt, linspace(0,1,N_nodes));
+    else
+        fprintf('Solution outside tolerance (%.1f km error) — not plotting.\n', alt_err);
+    end
+end

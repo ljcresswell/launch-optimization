@@ -1,0 +1,44 @@
+% Target Orbit Parameters
+a =  6678100
+e = 0.0
+
+% Planet Parameters
+radiusEarth = 6378100
+massEarth = 5.97219e24
+gravConstant = 6.6743e-11
+atmoEndPercent = 0.000001
+
+% Engine Parameters - Stage 1
+totalTemp1 = 3500
+totalPressure1 = 9000000
+specificHeatRatio1 = 1.22
+gasConstant1 = 355
+Ae1 = 4.5
+At1 = 0.15
+
+% Engine Parameters - Stage 2
+totalTemp2 = 4000
+totalPressure2 = 6000000
+specificHeatRatio2 = 1.2
+gasConstant2 = 600
+Ae2 = 3.06
+At2 = 0.0204
+
+% Rocket Parameters
+dragCoefficient = 0.25
+referenceArea = 7.5
+payloadMass = 5000
+engineMass1 = 2500
+engineMass2 = 800
+massFrac1 = 0.1
+massFrac2 = 0.1
+
+% Optimizer Setup
+maxThrustAngle = 1.57
+gravityTurnVelocity = 200
+numberOfControlNodes = 10
+maxSimTime = 2000
+massLowerBoundFactor = 0.01
+massUpperBoundFactor = 10
+
+

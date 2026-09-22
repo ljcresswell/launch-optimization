@@ -1,0 +1,102 @@
+function dXdt = rocketODE_rTheta(X, params, t)
+    % rocketODE_rTheta  Compute state derivatives for planar rocket motion.
+    %
+    %   State Vector X:
+    %       X(1) - r        (radial distance)
+    %       X(2) - theta    (angular position)
+    %       X(3) - r_dot    (radial velocity)
+    %       X(4) - v_theta  (tangential velocity = r*theta_dot)
+    %       X(5) - m        (mass)
+    %
+    %   Stages:
+    %       1 - Gravity turn 
+    %       1b - Technically solid fuel could burn longer than in
+    %       atmosphere, accounted for 
+    %       2 - Coast 
+    %       3 - Vacuum thrust 
+
+
+    r = X(1);
+    r_dot = X(3);
+    v_theta = X(4);
+    m = X(5);
+    delta = 0;
+   
+    Cd = params.dragCoefficient;
+    Aref = params.referenceArea;
+
+    radiusEarth  = params.radiusEarth;
+    massEarth   = params.massEarth;
+    gravConstant = params.gravConstant;
+
+    rEndAtmo = params.rEndAtmo;
+    inAtmo = (r < rEndAtmo);
+
+    V = sqrt(r_dot^2 + v_theta^2);
+    flightPathAngle = atan2(r_dot, v_theta);   % flight path angle
+
+    stage = params.stage;
+
+    switch stage
+
+        case {1, 5} % Solid booster gravity turn, could be outside atmo
+            delta = 0;
+            m_dot = m_dotFunc(params.specificHeatRatio1, ...
+                              params.At1, params.totalPressure1, ...
+                              params.totalTemp1, params.gasConstant1);
+            T = thrust(params.Ae1, params.At1, ...
+                       params.specificHeatRatio1, ...
+                       params.totalTemp1, params.totalPressure1, ...
+                       params.gasConstant1, radiusEarth, r);
+
+        case 2 % Coast to edeg of atmo
+            m_dot = 0;
+            T = 0;
+
+        case 3 % Vacuum engine to circularize
+                % Map current time to burn fraction [0,1]
+                % Possible bc burn rate constnatn
+                t_burn = t - params.t_stage3_start;
+                frac   = t_burn / params.liquidBurnDuration;
+                frac   = max(0, min(1, frac));   % clamp
+                delta  = params.deltaInterp(frac);
+            m_dot = m_dotFunc(params.specificHeatRatio2, ...
+                              params.At2, params.totalPressure2, ...
+                              params.totalTemp2, params.gasConstant2);
+
+            T = thrust(params.Ae2, params.At2, ...
+                       params.specificHeatRatio2, ...
+                       params.totalTemp2, params.totalPressure2, ...
+                       params.gasConstant2, radiusEarth, r);
+        case 4 % Finishing traj
+            delta = 0;
+            m_dot = 0;
+            T = 0;
+    end
+
+    % Drag
+    if inAtmo
+        D = dragFunc(r, radiusEarth, V, Cd, Aref);
+    else
+        D = 0;
+    end
+
+    % Grav
+    g = gravAccel(massEarth, gravConstant, r);
+
+    % Delta is measured from body axis, RHR around r x theta
+
+    r_doubleDot     = - sin(delta-flightPathAngle)/m * T ... 
+                      + sin(flightPathAngle)/m * D ...
+                      - g + v_theta^2/r;
+    
+    v_theta_dot     = + cos(delta-flightPathAngle)/m * T ...
+                      - cos(flightPathAngle)/m * D ...
+                      - r_dot*v_theta/r;
+    dXdt = [r_dot;
+            v_theta/r;          % dtheta/dt = v_theta/r
+            r_doubleDot;
+            v_theta_dot;      
+            -m_dot];
+
+end
